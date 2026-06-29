@@ -354,10 +354,16 @@ def tab_drivers(ind):
     with b:
         xcol = st.selectbox("Explore an indicator", inds, format_func=lambda k: CORRNAME[k])
         v = ind[[xcol, "total_deaths_per_million", "location"]].dropna()
-        st.plotly_chart(style_fig(px.scatter(v, x=xcol, y="total_deaths_per_million",
-                        hover_name="location", trendline="ols", color_discrete_sequence=[BLUE],
-                        labels={xcol: CORRNAME[xcol], "total_deaths_per_million": "Deaths per million"}),
-                        f"{CORRNAME[xcol]} vs mortality"), width='stretch')
+        fig = px.scatter(v, x=xcol, y="total_deaths_per_million", hover_name="location",
+                         color_discrete_sequence=[BLUE],
+                         labels={xcol: CORRNAME[xcol], "total_deaths_per_million": "Deaths per million"})
+        # trendline drawn with numpy (no statsmodels dependency)
+        if len(v) >= 2:
+            m, c = np.polyfit(v[xcol], v["total_deaths_per_million"], 1)
+            xs = np.array([v[xcol].min(), v[xcol].max()])
+            fig.add_scatter(x=xs, y=m * xs + c, mode="lines", name="trend",
+                            line=dict(color=RED, width=2, dash="dash"), showlegend=False)
+        st.plotly_chart(style_fig(fig, f"{CORRNAME[xcol]} vs mortality"), width='stretch')
     st.markdown("<div class='insight'>💡 <b>Ecological-fallacy alert:</b> diabetes prevalence shows almost "
                 "no country-level correlation with mortality (r≈0), yet at the individual level (Risk "
                 "Factors tab) diabetes is a strong predictor. Country aggregates can hide what matters for "
