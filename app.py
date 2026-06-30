@@ -17,7 +17,8 @@ import plotly.graph_objects as go
 import streamlit as st
 from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import precision_recall_fscore_support, roc_auc_score
+from sklearn.metrics import (precision_recall_fscore_support, roc_auc_score,
+                             roc_curve, confusion_matrix)
 from sklearn.model_selection import train_test_split
 
 # ----------------------------------------------------------------------- CONFIG
@@ -146,7 +147,8 @@ def train_models(patients: pd.DataFrame):
         pr, rc, f1, _ = precision_recall_fscore_support(yte, (proba >= .5).astype(int),
                                                         average="binary", zero_division=0)
         out[label] = dict(model=m, feats=feats, auc=roc_auc_score(yte, proba),
-                          precision=pr, recall=rc, f1=f1)
+                          precision=pr, recall=rc, f1=f1,
+                          y_true=yte.to_numpy(), y_proba=proba)
     return out
 
 # ------------------------------------------------------------------------- TABS
@@ -466,6 +468,41 @@ def tab_prediction(pf, models):
                 "AUC is stable under 5-fold cross-validation (0.91 ± 0.004 and 0.84 ± 0.006), and the "
                 "baseline model is reasonably calibrated (Brier 0.17).</div>",
                 unsafe_allow_html=True)
+
+    # ROC curves + confusion matrix (full model)
+    st.markdown("##### Model performance — ROC curves and confusion matrix")
+    rcol1, rcol2 = st.columns([1.15, 1])
+    with rcol1:
+        fig_roc = go.Figure()
+        for name, color in [("Full", BLUE), ("Baseline", RED)]:
+            fpr, tpr, _ = roc_curve(models[name]["y_true"], models[name]["y_proba"])
+            fig_roc.add_trace(go.Scatter(x=fpr, y=tpr, mode="lines",
+                              name=f"{name} (AUC={models[name]['auc']:.3f})",
+                              line=dict(color=color, width=2.5)))
+        fig_roc.add_trace(go.Scatter(x=[0, 1], y=[0, 1], mode="lines",
+                          line=dict(color="#888", dash="dash", width=1),
+                          name="Random", showlegend=False))
+        fig_roc.update_layout(xaxis_title="False positive rate",
+                              yaxis_title="True positive rate",
+                              legend=dict(x=0.6, y=0.1))
+        st.plotly_chart(style_fig(fig_roc, "ROC — full vs baseline", 360), width='stretch')
+    with rcol2:
+        yt = models["Full"]["y_true"]
+        yp = (models["Full"]["y_proba"] >= 0.5).astype(int)
+        cm = confusion_matrix(yt, yp)
+        cm_text = [[f"{v:,}" for v in row] for row in cm]
+        fig_cm = go.Figure(data=go.Heatmap(z=cm, x=["Pred survive", "Pred die"],
+                            y=["Survived", "Died"], colorscale="Blues",
+                            text=cm_text, texttemplate="%{text}",
+                            textfont=dict(size=14), showscale=True))
+        st.plotly_chart(style_fig(fig_cm, "Full model — confusion matrix", 360), width='stretch')
+    tn, fp, fn, tp = cm.ravel()
+    st.markdown(f"<div class='insight'>The model catches <b>{tp:,} of {tp+fn:,} actual deaths "
+                f"({tp/(tp+fn):.0%} recall)</b> — its primary job. The cost is "
+                f"<b>{fp:,} false alarms</b> among survivors, an acceptable trade for triage, "
+                f"since over-flagging is far less costly than missing a fatal case.</div>",
+                unsafe_allow_html=True)
+
     odds = pd.Series(np.exp(models["Full"]["model"].coef_[0]), index=FEATURES).sort_values()
     do = pd.DataFrame({"f": [PRETTY[i] for i in odds.index], "or": odds.values})
     st.plotly_chart(style_fig(px.bar(do, x="or", y="f", orientation="h", color="or",
