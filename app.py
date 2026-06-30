@@ -378,21 +378,41 @@ def tab_demographics(pf):
     kpi(c[2], f"{pf.age.mean():.0f}", "Mean age", "teal")
     kpi(c[3], f"{pf.n_comorbid.mean():.1f}", "Avg. comorbidities", "amber")
     st.write("")
+    st.markdown("<div class='insight'>🔗 <b>Coordinated view:</b> click an age band in the left chart and "
+                "the two panels beside and below it update to that group. The charts are linked, not separate.</div>",
+                unsafe_allow_html=True)
     a, b = st.columns(2)
     with a:
         ba = pf.groupby("age_band", observed=True).died.mean().mul(100).reset_index()
-        st.plotly_chart(style_fig(px.bar(ba, x="age_band", y="died", color="died",
-                        color_continuous_scale="Reds", labels={"died": "CFR %", "age_band": "Age"}),
-                        "Mortality by age band"), width='stretch')
+        figb = px.bar(ba, x="age_band", y="died", color="died",
+                      color_continuous_scale="Reds", labels={"died": "CFR %", "age_band": "Age"})
+        ev = st.plotly_chart(style_fig(figb, "Mortality by age band  (👆 click to filter)"),
+                             width='stretch', on_select="rerun", selection_mode="points",
+                             key="age_select")
+        sel = None
+        try:
+            pts = ev.selection["points"] if ev and ev.selection else []
+            if pts:
+                sel = pts[0].get("x")
+        except Exception:
+            sel = None
+    sub = pf[pf.age_band == sel] if sel else pf
+    label = f"age band {sel}" if sel else "all ages"
     with b:
-        sx = pf.groupby("sex").died.mean().mul(100).reset_index()
+        sx = sub.groupby("sex").died.mean().mul(100).reset_index()
         st.plotly_chart(style_fig(px.bar(sx, x="sex", y="died", color="sex",
                         color_discrete_sequence=[GREY, BLUE], labels={"died": "CFR %"}),
-                        "Mortality by sex"), width='stretch')
-    out = pf["died"].map({0: "Survived", 1: "Died"})
-    st.plotly_chart(style_fig(px.histogram(pf, x="age", color=out, barmode="overlay", nbins=45,
-                    color_discrete_map={"Survived": TEAL, "Died": RED}, labels={"color": "Outcome"}),
-                    "Age distribution: survived vs died"), width='stretch')
+                        f"Mortality by sex — {label}"), width='stretch')
+    # linked comorbidity breakdown, filtered by the clicked age band
+    cc = [{"factor": PRETTY[cd], "cfr": (sub[sub[cd] == 1].died.mean()*100 if (sub[cd] == 1).any() else 0)}
+          for cd in COMORBID]
+    cfr_df = pd.DataFrame(cc).sort_values("cfr")
+    st.plotly_chart(style_fig(px.bar(cfr_df, x="cfr", y="factor", orientation="h",
+                    color_discrete_sequence=[RED], labels={"cfr": "CFR %", "factor": ""}),
+                    f"Fatality by condition — {label}"), width='stretch')
+    if sel:
+        st.caption(f"🔎 Focused on {len(sub):,} patients in age band {sel}. "
+                   f"Click the bar again to clear, or pick another band.")
 
 def tab_riskfactors(pf):
     st.markdown("#### Clinical risk factors")
@@ -535,9 +555,15 @@ def main():
             "comorbidities and outcome. Drives the Demographics, Risk Factors and Prediction tabs. Reacts to "
             "the **Clinical filter** (sex, age). Used as a *transferable risk framework* whose drivers match "
             "Lebanon's profile.\n\n"
+            "**Everything is coordinated.** One set of sidebar filters drives every chart at once, so the views "
+            "respond together rather than as a series of separate graphs. The Demographics tab goes further: "
+            "click an age band and its neighbouring panels re-filter to that group — linked, interactive graphs. "
+            "The risk calculator is itself coordinated input-to-output: change a patient detail and the risk "
+            "updates live.\n\n"
             "**How to use.** Pick filters in the sidebar, move tab by tab (Overview → Geography → "
-            "Cross-Country → Demographics → Risk Factors → Prediction), and try the **risk calculator** in "
-            "the Prediction tab to score a patient live. Each panel is labelled with its data source.")
+            "Cross-Country → Demographics → Risk Factors → Prediction), click an age band on Demographics to see "
+            "the panels link, and try the **risk calculator** in the Prediction tab to score a patient live. "
+            "Each panel is labelled with its data source.")
 
     if st.sidebar.button("Log out"):
         st.session_state["authed"] = False
