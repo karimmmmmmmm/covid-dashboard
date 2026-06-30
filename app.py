@@ -510,17 +510,20 @@ def tab_prediction(pf, models):
                     "Adjusted odds ratios — full model", 420), width='stretch')
 
     st.markdown("##### 🧮 Patient risk calculator")
-    g = st.columns(3)
+    st.caption("Uses the **baseline model** — pre-existing factors known at intake, before deterioration. "
+               "This is the deployable triage tool; the full model (with pneumonia) is shown above as a benchmark only.")
+    g = st.columns(2)
     age = g[0].slider("Age", 0, 100, 55)
     sex_male = 1 if g[1].selectbox("Sex", ["Female", "Male"]) == "Male" else 0
-    pneu = 1 if g[2].selectbox("Pneumonia", ["No", "Yes"]) == "Yes" else 0
     picked = st.multiselect("Comorbidities", [PRETTY[c] for c in COMORBID])
     inv = {v: k for k, v in PRETTY.items()}
-    row = {f: 0 for f in FEATURES}
-    row.update({"age": age, "sex_male": sex_male, "pneumonia": pneu})
+    base_feats = models["Baseline"]["feats"]
+    row = {f: 0 for f in base_feats}
+    row.update({"age": age, "sex_male": sex_male})
     for p in picked:
-        row[inv[p]] = 1
-    prob = models["Full"]["model"].predict_proba(pd.DataFrame([row])[FEATURES])[0, 1]
+        if inv[p] in row:
+            row[inv[p]] = 1
+    prob = models["Baseline"]["model"].predict_proba(pd.DataFrame([row])[base_feats])[0, 1]
     color = RED if prob > .3 else (AMBER if prob > .1 else TEAL)
     cc = len(picked)
     cc1, cc2 = st.columns([2, 1])
